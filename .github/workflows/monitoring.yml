@@ -1,0 +1,37 @@
+name: Monitoring stack
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitoring:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      COMPOSE_PROJECT_NAME: homelab-ci-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: '3.12'
+      - name: Create local credentials
+        run: python scripts/init_env.py
+      - name: Validate Compose
+        run: docker compose config --quiet
+      - name: Validate Prometheus configuration
+        run: docker compose run --rm --no-deps --entrypoint /bin/promtool prometheus check config /etc/prometheus/prometheus.yml
+      - name: Start the isolated monitoring stack
+        run: docker compose up -d
+      - name: Verify targets, datasource, dashboard and panel data
+        run: python scripts/verify_stack.py --timeout 240
+      - name: Print container state
+        if: always()
+        run: docker compose ps -a
+      - name: Remove only the CI stack and its data
+        if: always()
+        run: docker compose down --volumes --remove-orphans
